@@ -224,6 +224,15 @@ export class DatabaseService {
 
       this.databaseSchema = schema;
       console.log('📋 Database schema loaded');
+      
+      // Debug: Show schema being sent to OpenAI
+      if (process.env.DEBUG_SCHEMA === 'true') {
+        console.log('\n' + '='.repeat(80));
+        console.log('🔍 DEBUG: Schema that will be sent to OpenAI:');
+        console.log('='.repeat(80));
+        console.log(schema);
+        console.log('='.repeat(80) + '\n');
+      }
 
     } catch (error) {
       console.warn('Could not load database schema:', error.message);

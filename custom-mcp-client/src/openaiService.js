@@ -5,7 +5,7 @@ import OpenAI from 'openai';
  * and database interaction assistance
  */
 export class OpenAIService {
-  constructor(apiKey, model = 'gpt-4o-mini') {
+  constructor(apiKey, model = 'gpt-4o') {
     this.client = new OpenAI({
       apiKey: apiKey
     });
@@ -121,7 +121,51 @@ Confidence Guidelines:
 - 0.0-0.5: Low confidence, unclear intent`;
 
     if (databaseSchema) {
-      prompt += `\n\nCurrent Database Schema:\n${databaseSchema}\n\nUse this schema to understand available tables and columns. Generate queries that work with these actual columns.`;
+      prompt += `\n\n${'='.repeat(80)}\n`;
+      prompt += `📋 DATABASE SCHEMA (READ THIS CAREFULLY BEFORE GENERATING SQL)\n`;
+      prompt += `${'='.repeat(80)}\n\n`;
+      prompt += databaseSchema;
+      prompt += `\n${'='.repeat(80)}\n`;
+      prompt += `\n🎯 CRITICAL INSTRUCTIONS FOR USING THE SCHEMA:\n\n`;
+      prompt += `STEP 1: READ THE SCHEMA ABOVE\n`;
+      prompt += `   - Identify which tables are relevant to the user's question\n`;
+      prompt += `   - Note the EXACT column names available in those tables\n`;
+      prompt += `   - Pay attention to data types (for proper comparisons)\n\n`;
+      prompt += `STEP 2: MAP USER REQUEST TO ACTUAL COLUMNS\n`;
+      prompt += `   - If user asks for "name", check if table has:\n`;
+      prompt += `     • "name" column, OR\n`;
+      prompt += `     • "first_name" and "last_name" columns, OR\n`;
+      prompt += `     • "username" column, OR\n`;
+      prompt += `     • "full_name" column\n`;
+      prompt += `   - If user asks for "user", check foreign keys:\n`;
+      prompt += `     • "user_id", "creator_id", "owner_id", etc.\n`;
+      prompt += `   - If user asks for "time/date", check:\n`;
+      prompt += `     • "created_at", "updated_at", "reservation_time", etc.\n\n`;
+      prompt += `STEP 3: GENERATE SQL USING ONLY COLUMNS FROM THE SCHEMA\n`;
+      prompt += `   - NEVER use column names not listed in the schema\n`;
+      prompt += `   - If the required column doesn't exist, return confidence < 0.5 with explanation\n`;
+      prompt += `   - When joining tables, verify BOTH tables have the join columns\n`;
+      prompt += `   - Use proper table aliases (u for users, r for reservations, etc.)\n\n`;
+      prompt += `EXAMPLE THOUGHT PROCESS:\n`;
+      prompt += `User asks: "Give me the first_name of users"\n`;
+      prompt += `1. Check schema: Does 'users' table exist? YES\n`;
+      prompt += `2. Check schema: Does 'users' have 'first_name' column? YES\n`;
+      prompt += `3. Generate: SELECT first_name FROM users\n\n`;
+      prompt += `User asks: "Give me the name of users"\n`;
+      prompt += `1. Check schema: Does 'users' table exist? YES\n`;
+      prompt += `2. Check schema: Does 'users' have 'name' column? NO\n`;
+      prompt += `3. Check schema: Does 'users' have 'first_name' and 'last_name'? YES\n`;
+      prompt += `4. Generate: SELECT CONCAT(first_name, ' ', last_name) as name FROM users\n\n`;
+      prompt += `User asks: "Users who created most reservations"\n`;
+      prompt += `1. Check schema: 'users' table exists, 'reservations' table exists\n`;
+      prompt += `2. Check schema: How to join? Look for foreign keys in 'reservations'\n`;
+      prompt += `3. Found: 'reservations' has 'creator_id' (likely points to users.id)\n`;
+      prompt += `4. Generate: SELECT u.*, COUNT(r.id) FROM users u JOIN reservations r ON u.id = r.creator_id GROUP BY u.id ORDER BY COUNT(r.id) DESC\n\n`;
+      prompt += `⚠️  REMEMBER: Your SQL will FAIL if you use columns that don't exist in the schema!\n`;
+      prompt += `Always double-check the schema before generating your SQL query.\n`;
+      prompt += `${'='.repeat(80)}\n`;
+    } else {
+      prompt += `\n\n⚠️  WARNING: No database schema available. Ask user to provide table structures first.\n`;
     }
 
     return prompt;
