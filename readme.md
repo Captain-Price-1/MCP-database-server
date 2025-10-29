@@ -1,328 +1,223 @@
-[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/executeautomation-mcp-database-server-badge.png)](https://mseep.ai/app/executeautomation-mcp-database-server)
+# MCP Database Server with Custom Client
 
-# MCP Database Server
+A comprehensive MCP (Model Context Protocol) database server with a custom client featuring OpenAI-powered natural language query capabilities.
 
-This MCP (Model Context Protocol) server provides database access capabilities to Claude, supporting SQLite, SQL Server, PostgreSQL, and MySQL databases.
+## 🚀 Project Overview
 
-## Installation
+This repository contains two main components:
 
-1. Clone the repository:
-```
-git clone https://github.com/executeautomation/mcp-database-server.git
-cd mcp-database-server
-```
+1. **MCP Database Server** (ExecuteAutomation) - The core database server supporting multiple database types
+2. **Custom MCP Client** - An intelligent client with OpenAI integration for natural language database queries
 
-2. Install dependencies:
-```
-npm install
-```
+## 📦 Components
 
-3. Build the project:
-```
-npm run build
-```
+### 1. MCP Database Server
 
-## Usage Options
+The core MCP server that provides database connectivity and tools for:
+- **SQLite** - File-based database support
+- **MySQL/MariaDB** - Including Laravel applications
+- **PostgreSQL** - With SSL support
+- **SQL Server** - Windows/Linux compatible
 
-There are two ways to use this MCP server with Claude:
+**Features:**
+- Multiple database type support
+- STDIO transport for MCP communication
+- Tools for querying, schema inspection, and data manipulation
+- Safe query execution with validation
+- Export capabilities (CSV, JSON)
 
-1. **Direct usage**: Install the package globally and use it directly
-2. **Local development**: Run from your local development environment
+### 2. Custom MCP Client (`custom-mcp-client/`)
 
-### Direct Usage with NPM Package
+An intelligent MCP client with advanced features:
+- **Natural Language Processing** - Ask questions in plain English
+- **Semantic Query Understanding** - Generates analytical SQL (GROUP BY, aggregations)
+- **OpenAI Integration** - GPT-4 powered query generation
+- **Interactive CLI** - User-friendly command-line interface
+- **Auto Schema Discovery** - Automatically learns your database structure
+- **Laravel Support** - Special setup for Laravel applications
 
-The easiest way to use this MCP server is by installing it globally:
+## 🎯 Key Features
+
+### Semantic Query Understanding
+
+The custom client understands the **intent** behind questions:
+
+❌ **Literal (Basic)**: "quiet times" → `SELECT quiet_time FROM table`
+✅ **Semantic (Smart)**: "quiet times" → `SELECT HOUR(time), COUNT(*) FROM table GROUP BY hour ORDER BY count ASC`
+
+### Example Queries
+
+- "What are the quiet times in reservations?"
+- "Who are the top customers?"
+- "What products are most popular?"
+- "Show me trends over the last month"
+- "Find users with more than 5 orders"
+
+## 🔧 Installation
+
+### Prerequisites
+
+- Node.js (v18 or higher)
+- OpenAI API key (for custom client)
+- Database (MySQL, PostgreSQL, SQLite, or SQL Server)
+
+### Setup
 
 ```bash
-npm install -g @executeautomation/database-server
+# Clone the repository
+git clone https://github.com/Captain-Price-1/MCP-database-server.git
+cd MCP-database-server
+
+# Install server dependencies
+npm install
+npm run build
+
+# Setup custom client
+cd custom-mcp-client
+npm install
+cp env.example .env
+# Edit .env with your OpenAI API key and database settings
 ```
 
-This allows you to use the server directly without building it locally.
+## 🚀 Quick Start
 
-### Local Development Setup
+### Running the MCP Server
 
-If you want to modify the code or run from your local environment:
+```bash
+# SQLite
+node dist/src/index.js /path/to/database.db
 
-1. Clone and build the repository as shown in the Installation section
-2. Run the server using the commands in the Usage section below
+# MySQL
+node dist/src/index.js --mysql --host localhost --database mydb --user root --password pass
 
-## Usage
+# PostgreSQL
+node dist/src/index.js --postgresql --host localhost --database mydb --user postgres --password pass
 
-### SQLite Database
-
-To use with an SQLite database:
-
-```
-node dist/src/index.js /path/to/your/database.db
-```
-
-### SQL Server Database
-
-To use with a SQL Server database:
-
-```
-node dist/src/index.js --sqlserver --server <server-name> --database <database-name> [--user <username> --password <password>]
+# SQL Server
+node dist/src/index.js --sqlserver --server localhost --database mydb --user sa --password pass
 ```
 
-Required parameters:
-- `--server`: SQL Server host name or IP address
-- `--database`: Name of the database
+### Running the Custom Client
 
-Optional parameters:
-- `--user`: Username for SQL Server authentication (if not provided, Windows Authentication will be used)
-- `--password`: Password for SQL Server authentication
-- `--port`: Port number (default: 1433)
-
-### PostgreSQL Database
-
-To use with a PostgreSQL database:
-
-```
-node dist/src/index.js --postgresql --host <host-name> --database <database-name> [--user <username> --password <password>]
+```bash
+cd custom-mcp-client
+npm start
 ```
 
-Required parameters:
-- `--host`: PostgreSQL host name or IP address
-- `--database`: Name of the database
-
-Optional parameters:
-- `--user`: Username for PostgreSQL authentication
-- `--password`: Password for PostgreSQL authentication
-- `--port`: Port number (default: 5432)
-- `--ssl`: Enable SSL connection (true/false)
-- `--connection-timeout`: Connection timeout in milliseconds (default: 30000)
-
-### MySQL Database
-
-#### Standard Authentication
-
-To use with a MySQL database:
-
+Then ask natural language questions:
 ```
-node dist/src/index.js --mysql --host <host-name> --database <database-name> --port <port> [--user <username> --password <password>]
+> What are the quiet times in reservations?
+> Who are the top users?
+> Show me all tables
 ```
 
-Required parameters:
-- `--host`: MySQL host name or IP address
-- `--database`: Name of the database
-- `--port`: Port number (default: 3306)
-
-Optional parameters:
-- `--user`: Username for MySQL authentication
-- `--password`: Password for MySQL authentication
-- `--ssl`: Enable SSL connection (true/false or object)
-- `--connection-timeout`: Connection timeout in milliseconds (default: 30000)
-
-#### AWS IAM Authentication
-
-For Amazon RDS MySQL instances with IAM database authentication:
-
-**Prerequisites:**
-- AWS credentials must be configured (the RDS Signer uses the default credential provider chain)
-- Configure using one of these methods:
-  - `aws configure` (uses default profile)
-  - `AWS_PROFILE=myprofile` environment variable
-  - `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` environment variables
-  - IAM roles (if running on EC2)
+## 📁 Project Structure
 
 ```
-node dist/src/index.js --mysql --aws-iam-auth --host <rds-endpoint> --database <database-name> --user <aws-username> --aws-region <region>
+mcp-database-server/
+├── src/                      # Server source code
+│   ├── db/                   # Database adapters
+│   ├── handlers/             # Request handlers
+│   ├── tools/                # Database tools
+│   └── utils/                # Utilities
+├── custom-mcp-client/        # Custom client with OpenAI
+│   ├── src/                  # Client source code
+│   │   ├── mcpClient.js      # MCP STDIO transport
+│   │   ├── openaiService.js  # Semantic understanding
+│   │   ├── databaseService.js # Database operations
+│   │   └── index.js          # Interactive CLI
+│   ├── examples/             # Usage examples
+│   └── README.md             # Client documentation
+├── docs/                     # Documentation
+├── examples/                 # Server examples
+└── README.md                 # This file
 ```
 
-Required parameters:
-- `--host`: RDS endpoint hostname
-- `--database`: Name of the database
-- `--aws-iam-auth`: Enable AWS IAM authentication
-- `--user`: AWS IAM username (also the database user)
-- `--aws-region`: AWS region where RDS instance is located
+## 🎨 Use Cases
 
-Note: SSL is automatically enabled for AWS IAM authentication
+1. **Laravel Applications** - Query your Laravel database with natural language
+2. **Data Analysis** - Ask analytical questions about your data
+3. **Business Intelligence** - Generate reports and insights
+4. **Database Exploration** - Discover tables, relationships, and patterns
+5. **Quick Prototyping** - Test queries without writing SQL
 
-## Configuring Claude Desktop
+## 🛠️ Technologies
 
-### Direct Usage Configuration
+- **Node.js** - Runtime environment
+- **TypeScript** - Server implementation
+- **OpenAI API** - Natural language processing (client)
+- **MCP SDK** - Model Context Protocol
+- **STDIO Transport** - Process-based communication
+- Multiple database drivers (sqlite3, mysql2, pg, mssql)
 
-If you installed the package globally, configure Claude Desktop with:
+## 📖 Documentation
 
-```json
-{
-  "mcpServers": {
-    "sqlite": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@executeautomation/database-server",
-        "/path/to/your/database.db"
-      ]
-    },
-    "sqlserver": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@executeautomation/database-server",
-        "--sqlserver",
-        "--server", "your-server-name",
-        "--database", "your-database-name",
-        "--user", "your-username",
-        "--password", "your-password"
-      ]
-    },
-    "postgresql": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@executeautomation/database-server",
-        "--postgresql",
-        "--host", "your-host-name",
-        "--database", "your-database-name",
-        "--user", "your-username",
-        "--password", "your-password"
-      ]
-    },
-    "mysql": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@executeautomation/database-server",
-        "--mysql",
-        "--host", "your-host-name",
-        "--database", "your-database-name",
-        "--port", "3306",
-        "--user", "your-username",
-        "--password", "your-password"
-      ]
-    },
-    "mysql-aws": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@executeautomation/database-server",
-        "--mysql",
-        "--aws-iam-auth",
-        "--host", "your-rds-endpoint.region.rds.amazonaws.com",
-        "--database", "your-database-name",
-        "--user", "your-aws-username",
-        "--aws-region", "us-east-1"
-      ]
-    }
-  }
-}
-```
+- [Server README](./readme.md) - Original server documentation
+- [Custom Client README](./custom-mcp-client/README.md) - Client documentation
+- [Laravel Setup Guide](./custom-mcp-client/LARAVEL_SETUP.md) - Laravel-specific setup
+- [Quick Start Guide](./custom-mcp-client/QUICK_START.md) - Quick setup guide
 
-### Local Development Configuration
+## 🔒 Security
 
-For local development, configure Claude Desktop to use your locally built version:
+- SQL injection protection via query validation
+- Environment variable configuration for sensitive data
+- Read-only mode available for safe querying
+- GitHub push protection for API keys
+- Proper .gitignore configuration
 
-```json
-{
-  "mcpServers": {
-    "sqlite": {
-      "command": "node",
-      "args": [
-        "/absolute/path/to/mcp-database-server/dist/src/index.js", 
-        "/path/to/your/database.db"
-      ]
-    },
-    "sqlserver": {
-      "command": "node",
-      "args": [
-        "/absolute/path/to/mcp-database-server/dist/src/index.js",
-        "--sqlserver",
-        "--server", "your-server-name",
-        "--database", "your-database-name",
-        "--user", "your-username",
-        "--password", "your-password"
-      ]
-    },
-    "postgresql": {
-      "command": "node",
-      "args": [
-        "/absolute/path/to/mcp-database-server/dist/src/index.js",
-        "--postgresql",
-        "--host", "your-host-name",
-        "--database", "your-database-name",
-        "--user", "your-username",
-        "--password", "your-password"
-      ]
-    },
-    "mysql": {
-      "command": "node",
-      "args": [
-        "/absolute/path/to/mcp-database-server/dist/src/index.js",
-        "--mysql",
-        "--host", "your-host-name",
-        "--database", "your-database-name",
-        "--port", "3306",
-        "--user", "your-username",
-        "--password", "your-password"
-      ]
-    },
-    "mysql-aws": {
-      "command": "node",
-      "args": [
-        "/absolute/path/to/mcp-database-server/dist/src/index.js",
-        "--mysql",
-        "--aws-iam-auth",
-        "--host", "your-rds-endpoint.region.rds.amazonaws.com",
-        "--database", "your-database-name",
-        "--user", "your-aws-username",
-        "--aws-region", "us-east-1"
-      ]
-    }
-  }
-}
-```
+## 🤝 Contributing
 
-The Claude Desktop configuration file is typically located at:
-- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
-- Linux: `~/.config/Claude/claude_desktop_config.json`
+Contributions welcome! Please:
+1. Fork the repository
+2. Create a feature branch
+3. Add tests for new functionality
+4. Submit a pull request
 
-## Available Database Tools
+## 📝 License
 
-The MCP Database Server provides the following tools that Claude can use:
+MIT License
 
-| Tool | Description | Required Parameters |
-|------|-------------|---------------------|
-| `read_query` | Execute SELECT queries to read data | `query`: SQL SELECT statement |
-| `write_query` | Execute INSERT, UPDATE, or DELETE queries | `query`: SQL modification statement |
-| `create_table` | Create new tables in the database | `query`: CREATE TABLE statement |
-| `alter_table` | Modify existing table schema | `query`: ALTER TABLE statement |
-| `drop_table` | Remove a table from the database | `table_name`: Name of table<br>`confirm`: Safety flag (must be true) |
-| `list_tables` | Get a list of all tables | None |
-| `describe_table` | View schema information for a table | `table_name`: Name of table |
-| `export_query` | Export query results as CSV/JSON | `query`: SQL SELECT statement<br>`format`: "csv" or "json" |
-| `append_insight` | Add a business insight to memo | `insight`: Text of insight |
-| `list_insights` | List all business insights | None |
+## 🙏 Acknowledgments
 
-For practical examples of how to use these tools with Claude, see [Usage Examples](docs/usage-examples.md).
+- **Server**: Based on [ExecuteAutomation's mcp-database-server](https://github.com/executeautomation/mcp-database-server)
+- **MCP Protocol**: By Anthropic
+- **OpenAI**: For GPT models powering semantic understanding
 
-## Additional Documentation
+## 📧 Support
 
-- [SQL Server Setup Guide](docs/sql-server-setup.md): Details on connecting to SQL Server databases
-- [PostgreSQL Setup Guide](docs/postgresql-setup.md): Details on connecting to PostgreSQL databases
-- [Usage Examples](docs/usage-examples.md): Example queries and commands to use with Claude
+For questions or issues:
+- Open an issue on GitHub
+- Check the documentation in `/docs` and `/custom-mcp-client`
 
-## Development
+## 🌟 Features Highlights
 
-To run the server in development mode:
+### Server Features
+- ✅ Multiple database type support
+- ✅ STDIO transport for MCP
+- ✅ Comprehensive database tools
+- ✅ Schema inspection
+- ✅ Query execution with validation
+- ✅ Export capabilities
 
-```
-npm run dev
-```
+### Custom Client Features
+- ✅ Natural language query understanding
+- ✅ Semantic SQL generation
+- ✅ OpenAI integration
+- ✅ Interactive CLI
+- ✅ Auto schema discovery
+- ✅ Laravel support
+- ✅ Comprehensive testing suite
 
-To watch for changes during development:
+## 🚦 Status
 
-```
-npm run watch
-```
+- Server: ✅ Production ready
+- Custom Client: ✅ Fully functional
+- Documentation: ✅ Complete
+- Tests: ✅ Comprehensive
 
-## Requirements
+---
 
-- Node.js 18+
-- For SQL Server connectivity: SQL Server 2012 or later
-- For PostgreSQL connectivity: PostgreSQL 9.5 or later
+**Made with ❤️ for the MCP community**
 
-## License
-
-MIT
+Original server by [ExecuteAutomation](https://github.com/executeautomation)
+Custom client and enhancements by [Captain-Price-1](https://github.com/Captain-Price-1)
