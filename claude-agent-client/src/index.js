@@ -27,6 +27,7 @@ const colors = {
 function formatMessage(message) {
   switch (message.type) {
     case 'assistantMessage':
+    case 'assistant':
       if (message.content) {
         const content = Array.isArray(message.content) ? message.content : [message.content];
         content.forEach(block => {
@@ -38,25 +39,57 @@ function formatMessage(message) {
             if (config.sdk.verbose) {
               console.log(`${colors.magenta}💭 Thinking:${colors.reset} ${block.thinking}`);
             }
+          } else if (block.type === 'tool_use') {
+            console.log(`${colors.yellow}🔧 Using tool: ${block.name}${colors.reset}`);
+          } else if (block.type === 'tool_result') {
+            console.log(`${colors.yellow}📊 Tool result received${colors.reset}`);
+            // Try to display the content of tool result
+            if (block.content) {
+              console.log(JSON.stringify(block.content, null, 2));
+            }
           }
         });
+      }
+      if (message.text) {
+        console.log(`${colors.cyan}Claude:${colors.reset} ${message.text}`);
       }
       break;
 
     case 'partialAssistantMessage':
-      if (config.sdk.verbose && message.delta) {
+      if (message.delta) {
         process.stdout.write(message.delta);
+      }
+      if (message.text) {
+        process.stdout.write(message.text);
       }
       break;
 
     case 'resultMessage':
-      if (config.sdk.debug) {
-        console.log(`${colors.yellow}🔧 Tool Result:${colors.reset}`);
-        console.log(JSON.stringify(message.content, null, 2));
+    case 'result':
+      // The actual result is in message.result, not message.content!
+      console.log(`\n${colors.cyan}${colors.bright}📋 Claude's Answer:${colors.reset}`);
+      if (message.result) {
+        console.log(`${colors.cyan}${message.result}${colors.reset}\n`);
+      }
+      
+      // Show permission denials if any
+      if (message.permission_denials && message.permission_denials.length > 0) {
+        console.log(`${colors.red}⚠️  Tool calls were denied! Permission mode needs to be set to 'bypassPermissions'${colors.reset}`);
+        console.log(`${colors.yellow}Denied tools:${colors.reset}`);
+        message.permission_denials.forEach(denial => {
+          console.log(`  - ${denial.tool_name}`);
+        });
+        console.log('');
+      }
+      
+      // Show cost and usage info
+      if (message.total_cost_usd) {
+        console.log(`${colors.yellow}💰 Cost: $${message.total_cost_usd.toFixed(4)}${colors.reset}`);
       }
       break;
 
     case 'userMessage':
+    case 'user':
       console.log(`${colors.green}You:${colors.reset} ${message.content}`);
       break;
 
@@ -64,10 +97,44 @@ function formatMessage(message) {
       console.log(`${colors.red}⚠️  Permission Denied:${colors.reset} ${message.reason}`);
       break;
 
-    default:
-      if (config.sdk.debug) {
-        console.log(`${colors.yellow}[${message.type}]${colors.reset}`, message);
+    case 'system':
+      // System messages - usually empty, skip
+      break;
+
+    case 'finalMessage':
+    case 'final':
+      console.log(`${colors.cyan}📋 Final Response:${colors.reset}`);
+      if (message.text) {
+        console.log(message.text);
       }
+      if (message.content) {
+        const content = Array.isArray(message.content) ? message.content : [message.content];
+        content.forEach(block => {
+          if (typeof block === 'string') {
+            console.log(block);
+          } else if (block.text) {
+            console.log(block.text);
+          } else {
+            console.log(JSON.stringify(block, null, 2));
+          }
+        });
+      }
+      break;
+
+    default:
+      // Catchall: Show EVERYTHING in default case
+      console.log(`${colors.yellow}[UNKNOWN TYPE: ${message.type}]${colors.reset}`);
+      if (message.text) {
+        console.log(`TEXT: ${message.text}`);
+      }
+      if (message.content) {
+        console.log(`CONTENT:`, JSON.stringify(message.content, null, 2));
+      }
+      if (message.delta) {
+        console.log(`DELTA: ${message.delta}`);
+      }
+      // Show all properties
+      console.log('FULL MESSAGE:', JSON.stringify(message, null, 2));
   }
 }
 
@@ -85,7 +152,7 @@ async function processQuery(userPrompt) {
         apiKey: config.anthropic.apiKey,
         model: config.anthropic.model,
         maxTokens: config.anthropic.maxTokens,
-        permissionMode: config.sdk.permissionMode,
+        permissionMode: 'bypassPermissions', // Always allow tools without asking
         autoStart: config.sdk.autoStart,
         mcpServers: [
           {
@@ -101,9 +168,35 @@ async function processQuery(userPrompt) {
       }
     });
 
+    let hasOutput = false;
+    let toolResults = [];
+    
     // Stream and display messages
     for await (const message of queryStream) {
       formatMessage(message);
+      
+      // Collect tool results
+      if (message.type === 'result' && message.content) {
+        toolResults.push(message.content);
+        hasOutput = true;
+      }
+      
+      // Track if we got any actual output
+      if (message.text || (message.content && (typeof message.content === 'string' || Array.isArray(message.content)))) {
+        hasOutput = true;
+      }
+    }
+
+    // If we collected tool results but saw no output, display them
+    if (toolResults.length > 0 && !hasOutput) {
+      console.log(`\n${colors.cyan}📊 Results:${colors.reset}`);
+      toolResults.forEach(result => {
+        if (typeof result === 'string') {
+          console.log(result);
+        } else {
+          console.log(JSON.stringify(result, null, 2));
+        }
+      });
     }
 
     console.log(`\n${colors.green}✅ Query complete!${colors.reset}\n`);
