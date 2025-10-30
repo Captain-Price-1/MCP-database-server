@@ -82,9 +82,26 @@ function formatMessage(message) {
         console.log('');
       }
       
-      // Show cost and usage info
+      // Show which models were used and their costs
+      if (message.modelUsage) {
+        console.log(`${colors.yellow}🤖 Models Used:${colors.reset}`);
+        Object.entries(message.modelUsage).forEach(([model, usage]) => {
+          if (usage.inputTokens > 0 || usage.outputTokens > 0) {
+            const modelName = model.split('-').slice(1, 3).join(' ').toUpperCase();
+            console.log(`  ${modelName}: $${usage.costUSD.toFixed(4)} (in: ${usage.inputTokens}, out: ${usage.outputTokens})`);
+          }
+        });
+        console.log('');
+      }
+      
+      // Show total cost
       if (message.total_cost_usd) {
-        console.log(`${colors.yellow}💰 Cost: $${message.total_cost_usd.toFixed(4)}${colors.reset}`);
+        console.log(`${colors.yellow}💰 Total Cost: $${message.total_cost_usd.toFixed(4)}${colors.reset}`);
+      }
+      
+      // Show number of turns (indicator of efficiency)
+      if (message.num_turns) {
+        console.log(`${colors.yellow}🔄 Conversation Turns: ${message.num_turns}${colors.reset}`);
       }
       break;
 
@@ -145,6 +162,12 @@ async function processQuery(userPrompt) {
   console.log(`\n${colors.blue}🔄 Processing query...${colors.reset}\n`);
 
   try {
+    // Force single model by setting environment variables
+    process.env.ANTHROPIC_MODEL = config.anthropic.model;
+    process.env.ANTHROPIC_DEFAULT_SONNET_MODEL = config.anthropic.model;
+    process.env.ANTHROPIC_DEFAULT_OPUS_MODEL = config.anthropic.model;
+    process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL = config.anthropic.model;
+    
     // Create query stream
     const queryStream = query({
       prompt: userPrompt,
