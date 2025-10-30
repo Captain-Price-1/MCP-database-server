@@ -178,6 +178,7 @@ async function processQuery(userPrompt) {
         permissionMode: 'bypassPermissions', // Always allow tools without asking
         autoStart: config.sdk.autoStart,
         mcpServers: [
+          // Database MCP Server
           {
             type: 'stdio',
             command: 'node',
@@ -185,6 +186,15 @@ async function processQuery(userPrompt) {
             env: {
               NODE_ENV: 'production',
               DEBUG: config.sdk.debug ? 'true' : 'false'
+            }
+          },
+          // Chart Generation MCP Server
+          {
+            type: 'stdio',
+            command: 'npx',
+            args: ['-y', '@antv/mcp-server-chart'],
+            env: {
+              NODE_ENV: 'production'
             }
           }
         ]
@@ -239,7 +249,7 @@ async function main() {
   console.log(`${colors.bright}${colors.cyan}
 ╔═══════════════════════════════════════════════════════╗
 ║                                                       ║
-║     🤖 Claude Agent Client with MCP Database         ║
+║   🤖 Claude Agent Client with Database & Charts 📊   ║
 ║                                                       ║
 ╚═══════════════════════════════════════════════════════╝
 ${colors.reset}`);
@@ -286,12 +296,19 @@ ${colors.cyan}Available Commands:${colors.reset}
   ${colors.green}config${colors.reset}   - Show current configuration
   ${colors.green}debug${colors.reset}    - Toggle debug mode
 
-${colors.cyan}Example Queries:${colors.reset}
+${colors.cyan}Example Database Queries:${colors.reset}
   - How many tables are in the database?
   - Show me all records from the users table
   - What are the family bookings in 2023?
   - Which service was most used in October 2023?
   - Give me the top 10 users by reservations
+
+${colors.cyan}Example Chart Queries:${colors.reset}
+  📊 - Show reservations by barber and create a bar chart
+  📈 - Query daily bookings for last month as a line chart
+  🥧 - Show customer distribution by status as a pie chart
+  🗺️  - Create a heatmap of reservations by day and hour
+  📉 - Compare monthly revenue as a bar chart
         `);
         break;
 
