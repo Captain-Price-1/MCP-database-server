@@ -12,6 +12,20 @@ A production-ready implementation using Anthropic's Claude Agent SDK to interact
 - **🎨 Interactive CLI**: Beautiful command-line interface
 - **🛡️ Type-Safe**: Full TypeScript support (SDK)
 - **⚡ Streaming**: Real-time response streaming
+- **📈 Chart Generation**: Automatic chart creation via @antv/mcp-server-chart
+- **🌐 REST API**: Laravel-ready HTTP API server
+
+## 📚 Complete Documentation
+
+- **[ARCHITECTURE_GUIDE.md](./ARCHITECTURE_GUIDE.md)** - 🏗️ **COMPLETE SYSTEM ARCHITECTURE** (Start here!)
+  - How everything works together
+  - Step-by-step flow diagrams
+  - Code walkthrough
+  - Why decisions were made
+  - Troubleshooting guide
+- **[API_README.md](./API_README.md)** - REST API quick reference
+- **[LARAVEL_API_GUIDE.md](./LARAVEL_API_GUIDE.md)** - Complete Laravel integration
+- **[QUICK_START.md](./QUICK_START.md)** - CLI client guide
 
 ## 📋 Prerequisites
 
@@ -103,6 +117,7 @@ See comprehensive demonstrations:
 ```bash
 npm run demo
 ```
+
 
 ## 🎯 Key Differences from OpenAI Client
 

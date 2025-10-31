@@ -9,6 +9,11 @@ import express from 'express';
 import cors from 'cors';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { config, validateConfig } from './config.js';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const app = express();
 const PORT = process.env.API_PORT || 3000;
@@ -18,6 +23,7 @@ app.use(cors());
 app.use(express.json());
 
 // Session storage for conversation history
+// Each session now stores the SDK's native sessionId
 const sessions = new Map();
 
 /**
@@ -31,7 +37,7 @@ function getSession(sessionId) {
   if (!sessions.has(sessionId)) {
     sessions.set(sessionId, {
       id: sessionId,
-      history: [],
+      sdkSessionId: null, // Store the SDK's session ID here
       createdAt: new Date(),
       lastActivity: new Date()
     });
@@ -55,6 +61,102 @@ setInterval(() => {
 }, 5 * 60 * 1000); // Run every 5 minutes
 
 /**
+ * Check if user explicitly requested SMS/Email actions
+ */
+function extractActionRequest(userPrompt, assistantResponse) {
+  const actions = [];
+  
+  // Check if user EXPLICITLY asked to send SMS
+  const smsKeywords = /send\s+(?:an?\s+)?sms|text\s+message|notify.*sms|sms.*to/i;
+  const emailKeywords = /send\s+(?:an?\s+)?email|email.*to|notify.*email/i;
+  
+  const userWantsSMS = smsKeywords.test(userPrompt);
+  const userWantsEmail = emailKeywords.test(userPrompt);
+  
+  if (!userWantsSMS && !userWantsEmail) {
+    return actions; // No action requested
+  }
+  
+  // Extract user IDs from response (look for tables, lists, or explicit IDs in prompt/response)
+  let userIds = [];
+  
+  // Try to extract from response (table format, lists, etc.)
+  const userIdPatterns = [
+    /user\s+id[:\s]+(\d+)/gi,
+    /\|\s*(\d+)\s*\|\s*\d+/g, // Table format: | 123 | count |
+    /ids?[:\s]+([\d,\s]+)/gi,
+    /\(([\d,\s]+)\)/g // IDs in parentheses
+  ];
+  
+  userIdPatterns.forEach(pattern => {
+    const matches = assistantResponse.match(pattern);
+    if (matches) {
+      matches.forEach(match => {
+        const ids = match.match(/\d+/g);
+        if (ids) {
+          userIds.push(...ids.map(Number));
+        }
+      });
+    }
+  });
+  
+  // Also check prompt for explicit IDs
+  const promptIds = userPrompt.match(/users?\s+(\d+(?:\s*,\s*\d+)*)/gi);
+  if (promptIds) {
+    promptIds.forEach(match => {
+      const ids = match.match(/\d+/g);
+      if (ids) {
+        userIds.push(...ids.map(Number));
+      }
+    });
+  }
+  
+  // Remove duplicates and filter valid IDs
+  userIds = [...new Set(userIds)].filter(id => id > 0);
+  
+  // Extract message content if provided in prompt
+  let message = '';
+  const messageMatch = userPrompt.match(/message[:\s]+"([^"]+)"|saying[:\s]+"([^"]+)"|sms[:\s]+"([^"]+)"/i);
+  if (messageMatch) {
+    message = messageMatch[1] || messageMatch[2] || messageMatch[3] || '';
+  }
+  
+  // Create SMS action if requested and we have user IDs
+  if (userWantsSMS && userIds.length > 0) {
+    actions.push({
+      type: 'send_sms',
+      user_ids: userIds,
+      message: message || 'Thank you for your loyalty!',
+      reason: 'User explicitly requested SMS sending'
+    });
+  }
+  
+  // Create Email action if requested
+  if (userWantsEmail && userIds.length > 0) {
+    let subject = 'Notification';
+    const subjectMatch = userPrompt.match(/subject[:\s]+"([^"]+)"/i);
+    if (subjectMatch) {
+      subject = subjectMatch[1];
+    }
+    
+    const emailMsgMatch = userPrompt.match(/email[:\s]+"([^"]+)"|message[:\s]+"([^"]+)"/i);
+    if (emailMsgMatch) {
+      message = emailMsgMatch[1] || emailMsgMatch[2] || message;
+    }
+    
+    actions.push({
+      type: 'send_email',
+      user_ids: userIds,
+      subject: subject,
+      message: message || 'Thank you for your business!',
+      reason: 'User explicitly requested email sending'
+    });
+  }
+  
+  return actions;
+}
+
+/**
  * Process query and return clean result
  */
 async function processQuery(userPrompt, session) {
@@ -64,45 +166,67 @@ async function processQuery(userPrompt, session) {
   process.env.ANTHROPIC_DEFAULT_OPUS_MODEL = config.anthropic.model;
   process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL = config.anthropic.model;
 
-  // Add user message to history
-  session.history.push({
-    role: 'user',
-    content: userPrompt
-  });
-
   try {
+    // Build query options - ALWAYS include mcpServers for tools access
+    const queryOptions = {
+      apiKey: config.anthropic.apiKey,
+      model: config.anthropic.model,
+      maxTokens: config.anthropic.maxTokens,
+      permissionMode: 'bypassPermissions',
+      autoStart: config.sdk.autoStart,
+      mcpServers: [
+        // Database MCP Server
+        {
+          type: 'stdio',
+          command: 'node',
+          args: [config.mcp.serverPath, ...config.mcp.serverArgs],
+          env: {
+            NODE_ENV: 'production',
+            DEBUG: 'false'
+          }
+        },
+        // Chart Generation MCP Server
+        {
+          type: 'stdio',
+          command: 'npx',
+          args: ['-y', '@antv/mcp-server-chart'],
+          env: {
+            NODE_ENV: 'production'
+          }
+        },
+        // Laravel Actions MCP Server (SMS, Email)
+        {
+          type: 'stdio',
+          command: 'node',
+          args: [join(__dirname, 'customTools.js')],
+          env: {
+            NODE_ENV: 'production'
+          }
+        }
+      ]
+    };
+
+    // Resume previous session to maintain conversation context
+    // The SDK's 'resume' parameter loads the full conversation history
+    if (session.sdkSessionId) {
+      queryOptions.resume = session.sdkSessionId;
+      console.log('[SESSION] Resuming session:', session.sdkSessionId);
+    } else {
+      console.log('[SESSION] Starting new session');
+    }
+
+    // Add system instructions if user asks for SMS/Email
+    let enhancedPrompt = userPrompt;
+    if (/send|notify|text|sms|email/i.test(userPrompt)) {
+      enhancedPrompt = `${userPrompt}
+
+IMPORTANT: You have access to send_sms and send_email tools. When the user asks to send messages, you MUST use these tools instead of just saying you'll send them. Call the tools with the appropriate user IDs and message content.`;
+    }
+
     // Create query stream
     const queryStream = query({
-      prompt: userPrompt,
-      conversationHistory: session.history.slice(0, -1),
-      options: {
-        apiKey: config.anthropic.apiKey,
-        model: config.anthropic.model,
-        maxTokens: config.anthropic.maxTokens,
-        permissionMode: 'bypassPermissions',
-        autoStart: config.sdk.autoStart,
-        mcpServers: [
-          // Database MCP Server
-          {
-            type: 'stdio',
-            command: 'node',
-            args: [config.mcp.serverPath, ...config.mcp.serverArgs],
-            env: {
-              NODE_ENV: 'production',
-              DEBUG: 'false'
-            }
-          },
-          // Chart Generation MCP Server
-          {
-            type: 'stdio',
-            command: 'npx',
-            args: ['-y', '@antv/mcp-server-chart'],
-            env: {
-              NODE_ENV: 'production'
-            }
-          }
-        ]
-      }
+      prompt: enhancedPrompt,
+      options: queryOptions
     });
 
     let assistantResponse = '';
@@ -111,11 +235,33 @@ async function processQuery(userPrompt, session) {
     let cost = 0;
     let turns = 0;
     let allMessages = [];
+    let availableTools = [];
 
     // Collect response
     for await (const message of queryStream) {
       // Store all messages for debugging
       allMessages.push(message);
+
+      // Capture the SDK session ID from the init message
+      if (message.type === 'system' && message.subtype === 'init' && message.session_id) {
+        session.sdkSessionId = message.session_id;
+        console.log('[SESSION] ✅ Captured SDK session ID:', message.session_id);
+      }
+
+      // Log all system messages to see what's happening
+      if (message.type === 'system') {
+        console.log('[SYSTEM]', message.subtype || 'unknown', JSON.stringify(message).substring(0, 200));
+        
+        // Track available tools
+        if (message.tools && Array.isArray(message.tools)) {
+          message.tools.forEach(tool => {
+            if (tool.name && !availableTools.includes(tool.name)) {
+              availableTools.push(tool.name);
+              console.log('[TOOL] Available:', tool.name);
+            }
+          });
+        }
+      }
 
       // Log message for debugging (only if DEBUG=true)
       if (process.env.DEBUG === 'true') {
@@ -148,10 +294,6 @@ async function processQuery(userPrompt, session) {
               name: toolName,
               id: block.id
             });
-            
-            if (process.env.DEBUG === 'true') {
-              console.log('[API DEBUG] Tool used:', toolName);
-            }
           }
 
           // Extract chart URLs from tool results
@@ -297,11 +439,17 @@ async function processQuery(userPrompt, session) {
       }
     }
 
-    // Add assistant response to history
-    if (assistantResponse) {
-      session.history.push({
-        role: 'assistant',
-        content: assistantResponse
+    // Extract actions ONLY if user explicitly requested SMS/Email in their prompt
+    const extractedActions = extractActionRequest(userPrompt, assistantResponse);
+
+    // Log final summary
+    console.log('[SUMMARY] Tools available:', availableTools.length, availableTools);
+    console.log('[SUMMARY] Tools used:', toolsUsed.length, toolsUsed.map(t => t.name));
+    console.log('[SUMMARY] Actions captured:', extractedActions.length);
+    if (extractedActions.length > 0) {
+      console.log('[ACTION] ✅ User explicitly requested actions:', extractedActions.length);
+      extractedActions.forEach(action => {
+        console.log(`[ACTION] ${action.type} for ${action.user_ids.length} users`);
       });
     }
 
@@ -309,11 +457,14 @@ async function processQuery(userPrompt, session) {
       success: true,
       response: assistantResponse,
       charts: chartUrls,
+      actions: extractedActions, // Only populated when user explicitly requests
       metadata: {
         toolsUsed: toolsUsed.map(t => t.name),
+        availableTools: availableTools,
         cost: cost,
         turns: turns,
-        sessionId: session.id
+        sessionId: session.id,
+        hasActions: extractedActions.length > 0
       }
     };
 
@@ -422,8 +573,10 @@ app.post('/query', async (req, res) => {
       // Force new session
       const newId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       session = getSession(newId);
+      console.log('[SESSION] Created new session:', newId);
     } else {
       session = getSession(sessionId);
+      console.log('[SESSION] Using session:', session.id, 'SDK Session:', session.sdkSessionId || 'none');
     }
 
     // Process query
@@ -486,7 +639,8 @@ app.get('/session/:sessionId', (req, res) => {
     success: true,
     session: {
       id: session.id,
-      messageCount: session.history.length,
+      sdkSessionId: session.sdkSessionId,
+      hasContext: !!session.sdkSessionId,
       createdAt: session.createdAt,
       lastActivity: session.lastActivity
     }
@@ -519,6 +673,12 @@ async function startServer() {
    POST /query               - Process query
    POST /session/clear       - Clear session
    GET  /session/:sessionId  - Get session info
+
+🔧 MCP Tools:
+   ✅ Database queries
+   ✅ Chart generation  
+   ✅ SMS actions (send_sms)
+   ✅ Email actions (send_email)
 
 💡 Ready to receive requests from Laravel!
       `);
