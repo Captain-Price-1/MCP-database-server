@@ -61,98 +61,91 @@ setInterval(() => {
 }, 5 * 60 * 1000); // Run every 5 minutes
 
 /**
- * Check if user explicitly requested SMS/Email actions
+ * Analyze if user wants SMS/Email using a separate Claude call
+ * This runs in parallel with the main query
  */
-function extractActionRequest(userPrompt, assistantResponse) {
-  const actions = [];
-  
-  // Check if user EXPLICITLY asked to send SMS
-  const smsKeywords = /send\s+(?:an?\s+)?sms|text\s+message|notify.*sms|sms.*to/i;
-  const emailKeywords = /send\s+(?:an?\s+)?email|email.*to|notify.*email/i;
-  
-  const userWantsSMS = smsKeywords.test(userPrompt);
-  const userWantsEmail = emailKeywords.test(userPrompt);
-  
-  if (!userWantsSMS && !userWantsEmail) {
-    return actions; // No action requested
-  }
-  
-  // Extract user IDs from response (look for tables, lists, or explicit IDs in prompt/response)
-  let userIds = [];
-  
-  // Try to extract from response (table format, lists, etc.)
-  const userIdPatterns = [
-    /user\s+id[:\s]+(\d+)/gi,
-    /\|\s*(\d+)\s*\|\s*\d+/g, // Table format: | 123 | count |
-    /ids?[:\s]+([\d,\s]+)/gi,
-    /\(([\d,\s]+)\)/g // IDs in parentheses
-  ];
-  
-  userIdPatterns.forEach(pattern => {
-    const matches = assistantResponse.match(pattern);
-    if (matches) {
-      matches.forEach(match => {
-        const ids = match.match(/\d+/g);
-        if (ids) {
-          userIds.push(...ids.map(Number));
-        }
-      });
-    }
-  });
-  
-  // Also check prompt for explicit IDs
-  const promptIds = userPrompt.match(/users?\s+(\d+(?:\s*,\s*\d+)*)/gi);
-  if (promptIds) {
-    promptIds.forEach(match => {
-      const ids = match.match(/\d+/g);
-      if (ids) {
-        userIds.push(...ids.map(Number));
+async function analyzeActionIntent(userPrompt, assistantResponse) {
+  try {
+    const analysisPrompt = `Analyze this request and determine if the user wants to send SMS or Email.
+
+User's Request: "${userPrompt}"
+
+Assistant's Response: "${assistantResponse.substring(0, 400)}"
+
+RESPOND ONLY WITH JSON (no other text):
+{
+  "wantsSMS": true/false,
+  "wantsEmail": true/false,
+  "userIds": [array of user/barber/customer IDs found],
+  "message": "suggested message text"
+}
+
+Rules:
+- wantsSMS=true ONLY if user wants to SEND sms (not asking about sms)
+- Extract ALL user/barber/customer IDs from the response
+- Exclude shop IDs, year numbers, small numbers
+- Generate a brief friendly message based on context`;
+
+    const analysisStream = query({
+      prompt: analysisPrompt,
+      options: {
+        apiKey: config.anthropic.apiKey,
+        model: config.anthropic.model,
+        maxTokens: 500,
+        permissionMode: 'bypassPermissions',
+        autoStart: false,
+        mcpServers: []
       }
     });
+
+    let result = '';
+    for await (const msg of analysisStream) {
+      if (msg.result) result += msg.result;
+      if (msg.text) result += msg.text;
+    }
+
+    // Extract JSON from response
+    const jsonMatch = result.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      console.log('[ACTION ANALYSIS]', parsed);
+      return parsed;
+    }
+
+    return { wantsSMS: false, wantsEmail: false, userIds: [], message: '' };
+  } catch (error) {
+    console.error('[ACTION ANALYSIS] Error:', error.message);
+    return { wantsSMS: false, wantsEmail: false, userIds: [], message: '' };
   }
-  
-  // Remove duplicates and filter valid IDs
-  userIds = [...new Set(userIds)].filter(id => id > 0);
-  
-  // Extract message content if provided in prompt
-  let message = '';
-  const messageMatch = userPrompt.match(/message[:\s]+"([^"]+)"|saying[:\s]+"([^"]+)"|sms[:\s]+"([^"]+)"/i);
-  if (messageMatch) {
-    message = messageMatch[1] || messageMatch[2] || messageMatch[3] || '';
-  }
-  
-  // Create SMS action if requested and we have user IDs
-  if (userWantsSMS && userIds.length > 0) {
+}
+
+/**
+ * Create actions array based on analysis
+ */
+function createActions(analysis) {
+  const actions = [];
+
+  if (analysis.wantsSMS && analysis.userIds.length > 0) {
     actions.push({
       type: 'send_sms',
-      user_ids: userIds,
-      message: message || 'Thank you for your loyalty!',
-      reason: 'User explicitly requested SMS sending'
+      user_ids: analysis.userIds,
+      message: analysis.message || 'Thank you for your loyalty!',
+      reason: 'User requested SMS notification'
     });
+    console.log('[SMS] Action created for', analysis.userIds.length, 'user(s)');
   }
-  
-  // Create Email action if requested
-  if (userWantsEmail && userIds.length > 0) {
-    let subject = 'Notification';
-    const subjectMatch = userPrompt.match(/subject[:\s]+"([^"]+)"/i);
-    if (subjectMatch) {
-      subject = subjectMatch[1];
-    }
-    
-    const emailMsgMatch = userPrompt.match(/email[:\s]+"([^"]+)"|message[:\s]+"([^"]+)"/i);
-    if (emailMsgMatch) {
-      message = emailMsgMatch[1] || emailMsgMatch[2] || message;
-    }
-    
+
+  if (analysis.wantsEmail && analysis.userIds.length > 0) {
     actions.push({
       type: 'send_email',
-      user_ids: userIds,
-      subject: subject,
-      message: message || 'Thank you for your business!',
-      reason: 'User explicitly requested email sending'
+      user_ids: analysis.userIds,
+      subject: 'Notification',
+      message: analysis.message || 'Thank you for your business!',
+      reason: 'User requested email notification'
     });
+    console.log('[EMAIL] Action created for', analysis.userIds.length, 'user(s)');
   }
-  
+
   return actions;
 }
 
@@ -215,17 +208,10 @@ async function processQuery(userPrompt, session) {
       console.log('[SESSION] Starting new session');
     }
 
-    // Add system instructions if user asks for SMS/Email
-    let enhancedPrompt = userPrompt;
-    if (/send|notify|text|sms|email/i.test(userPrompt)) {
-      enhancedPrompt = `${userPrompt}
-
-IMPORTANT: You have access to send_sms and send_email tools. When the user asks to send messages, you MUST use these tools instead of just saying you'll send them. Call the tools with the appropriate user IDs and message content.`;
-    }
-
-    // Create query stream
+    // Create query stream - just process the user's prompt normally
+    // SMS/Email actions will be handled by separate analysis afterwards
     const queryStream = query({
-      prompt: enhancedPrompt,
+      prompt: userPrompt,
       options: queryOptions
     });
 
@@ -439,8 +425,11 @@ IMPORTANT: You have access to send_sms and send_email tools. When the user asks 
       }
     }
 
-    // Extract actions ONLY if user explicitly requested SMS/Email in their prompt
-    const extractedActions = extractActionRequest(userPrompt, assistantResponse);
+    // SEPARATE ANALYSIS: Check if user wants SMS/Email actions
+    // This runs AFTER we have the main response
+    console.log('[ACTIONS] Analyzing intent...');
+    const actionAnalysis = await analyzeActionIntent(userPrompt, assistantResponse);
+    const extractedActions = createActions(actionAnalysis);
 
     // Log final summary
     console.log('[SUMMARY] Tools available:', availableTools.length, availableTools);
