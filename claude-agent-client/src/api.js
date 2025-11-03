@@ -94,6 +94,8 @@ Rules:
         maxTokens: 500,
         permissionMode: 'bypassPermissions',
         autoStart: false,
+        systemPrompt: { preset: 'claude_code' },
+        settingSources: ['project'], // Load CLAUDE.md for context
         mcpServers: []
       }
     });
@@ -167,6 +169,8 @@ async function processQuery(userPrompt, session) {
       maxTokens: config.anthropic.maxTokens,
       permissionMode: 'bypassPermissions',
       autoStart: config.sdk.autoStart,
+      systemPrompt: { preset: 'claude_code' },
+      settingSources: ['project'], // Load CLAUDE.md files automatically
       mcpServers: [
         // Database MCP Server
         {
@@ -208,7 +212,7 @@ async function processQuery(userPrompt, session) {
       console.log('[SESSION] Starting new session');
     }
 
-    // Create query stream - just process the user's prompt normally
+    // Create query stream - CLAUDE.md will be automatically loaded via settingSources
     // SMS/Email actions will be handled by separate analysis afterwards
     const queryStream = query({
       prompt: userPrompt,
